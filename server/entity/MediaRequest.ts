@@ -14,7 +14,7 @@ import notificationManager, { Notification } from '@server/lib/notifications';
 import { Permission } from '@server/lib/permissions';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
-import { DbAwareColumn } from '@server/utils/DbColumnHelper';
+import { DbAwareColumn, resolveDbType } from '@server/utils/DbColumnHelper';
 import { isBookDetails } from '@server/utils/typeHelpers';
 import { truncate } from 'lodash';
 import {
@@ -23,10 +23,12 @@ import {
   AfterUpdate,
   Column,
   Entity,
+  Index,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   RelationCount,
+  UpdateDateColumn,
 } from 'typeorm';
 import Media from './Media';
 import SeasonRequest from './SeasonRequest';
@@ -36,7 +38,7 @@ export class RequestPermissionError extends Error {}
 export class QuotaRestrictedError extends Error {}
 export class DuplicateMediaRequestError extends Error {}
 export class NoSeasonsAvailableError extends Error {}
-export class BlacklistedMediaError extends Error {}
+export class BlocklistedMediaError extends Error {}
 
 type MediaRequestOptions = {
   isAutoRequest?: boolean;
@@ -130,15 +132,37 @@ export class MediaRequest {
 
     const quotas = await requestUser.getQuota();
 
-    if (requestBody.mediaType === MediaType.MOVIE && quotas.movie.restricted) {
-      throw new QuotaRestrictedError('Movie Quota exceeded.');
-    } else if (requestBody.mediaType === MediaType.TV && quotas.tv.restricted) {
-      throw new QuotaRestrictedError('Series Quota exceeded.');
-    } else if (
-      requestBody.mediaType === MediaType.BOOK &&
-      quotas.book.restricted
-    ) {
-      throw new QuotaRestrictedError('Book Quota exceeded.');
+    const canBypassQuota = user.hasPermission(Permission.MANAGE_REQUESTS);
+    const ignoreQuota =
+      requestBody.ignoreQuota === true &&
+      canBypassQuota &&
+      ((requestBody.mediaType === MediaType.MOVIE
+        ? quotas.movie.limit
+        : requestBody.mediaType === MediaType.BOOK
+        ? quotas.book.limit
+        : quotas.tv.limit) ?? 0) > 0;
+
+    if (!ignoreQuota) {
+      if (requestBody.ignoreQuota && !canBypassQuota) {
+        throw new RequestPermissionError(
+          'You do not have permission to bypass user quota limits.'
+        );
+      } else if (
+        requestBody.mediaType === MediaType.MOVIE &&
+        quotas.movie.restricted
+      ) {
+        throw new QuotaRestrictedError('Movie Quota exceeded.');
+      } else if (
+        requestBody.mediaType === MediaType.TV &&
+        quotas.tv.restricted
+      ) {
+        throw new QuotaRestrictedError('Series Quota exceeded.');
+      } else if (
+        requestBody.mediaType === MediaType.BOOK &&
+        quotas.book.restricted
+      ) {
+        throw new QuotaRestrictedError('Book Quota exceeded.');
+      }
     }
 
     const mediaDetails =
@@ -170,31 +194,27 @@ export class MediaRequest {
         mediaType: requestBody.mediaType,
       });
     } else {
-      if (media.status === MediaStatus.BLACKLISTED) {
-        logger.warn('Request for media blocked due to being blacklisted', {
+      if (media.status === MediaStatus.BLOCKLISTED) {
+        logger.warn('Request for media blocked due to being blocklisted', {
           [key]: mediaDetails.id,
           mediaType: requestBody.mediaType,
           label: 'Media Request',
         });
 
-        throw new BlacklistedMediaError('This media is blacklisted.');
+        throw new BlocklistedMediaError('This media is blocklisted.');
       }
 
       if (
-        (requestBody.mediaType === MediaType.BOOK ||
-          requestBody.mediaType === MediaType.MOVIE ||
-          requestBody.mediaType === MediaType.TV) &&
-        media.status === MediaStatus.UNKNOWN &&
+        (media.status === MediaStatus.UNKNOWN ||
+          media.status === MediaStatus.DELETED) &&
         !requestBody.isAlt
       ) {
         media.status = MediaStatus.PENDING;
       }
 
       if (
-        (requestBody.mediaType === MediaType.BOOK ||
-          requestBody.mediaType === MediaType.MOVIE ||
-          requestBody.mediaType === MediaType.TV) &&
-        media.statusAlt === MediaStatus.UNKNOWN &&
+        (media.statusAlt === MediaStatus.UNKNOWN ||
+          media.statusAlt === MediaStatus.DELETED) &&
         requestBody.isAlt
       ) {
         media.statusAlt = MediaStatus.PENDING;
@@ -203,7 +223,7 @@ export class MediaRequest {
 
     const existing = await requestRepository
       .createQueryBuilder('request')
-      .leftJoin('request.media', 'media')
+      .leftJoinAndSelect('request.media', 'media')
       .leftJoinAndSelect('request.requestedBy', 'user')
       .where('request.isAlt = :isAlt', { isAlt: requestBody.isAlt })
       .andWhere(`media.${key} = :mediaId`, { mediaId: mediaDetails.id })
@@ -234,9 +254,13 @@ export class MediaRequest {
 
       // If an existing auto-request for this media exists from the same user,
       // don't allow a new one.
+      const statusKey = requestBody.isAlt ? 'statusAlt' : 'status';
       if (
         existing.find(
-          (r) => r.requestedBy.id === requestUser.id && r.isAutoRequest
+          (r) =>
+            r.requestedBy.id === requestUser.id &&
+            r.isAutoRequest &&
+            r.media?.[statusKey] !== MediaStatus.DELETED
         )
       ) {
         throw new DuplicateMediaRequestError(
@@ -433,6 +457,7 @@ export class MediaRequest {
         rootFolder: rootFolder,
         tags: tags,
         isAutoRequest: options.isAutoRequest ?? false,
+        ignoreQuota,
       });
 
       await requestRepository.save(request);
@@ -543,6 +568,7 @@ export class MediaRequest {
       if (finalSeasons.length === 0) {
         throw new NoSeasonsAvailableError('No seasons available to request');
       } else if (
+        !ignoreQuota &&
         quotas.tv.limit &&
         finalSeasons.length > (quotas.tv.remaining ?? 0)
       ) {
@@ -611,6 +637,7 @@ export class MediaRequest {
             })
         ),
         isAutoRequest: options.isAutoRequest ?? false,
+        ignoreQuota,
       });
 
       await requestRepository.save(request);
@@ -622,35 +649,37 @@ export class MediaRequest {
   public id: number;
 
   @Column({ type: 'integer' })
+  @Index()
   public status: MediaRequestStatus;
 
   @ManyToOne(() => Media, (media) => media.requests, {
     eager: true,
     onDelete: 'CASCADE',
   })
+  @Index()
   public media: Media;
 
   @ManyToOne(() => User, (user) => user.requests, {
     eager: true,
     onDelete: 'CASCADE',
   })
+  @Index()
   public requestedBy: User;
 
   @ManyToOne(() => User, {
     nullable: true,
-    cascade: true,
     eager: true,
     onDelete: 'SET NULL',
   })
+  @Index()
   public modifiedBy?: User;
 
   @DbAwareColumn({ type: 'datetime', default: () => 'CURRENT_TIMESTAMP' })
   public createdAt: Date;
 
-  @DbAwareColumn({
-    type: 'datetime',
+  @UpdateDateColumn({
+    type: resolveDbType('datetime'),
     default: () => 'CURRENT_TIMESTAMP',
-    onUpdate: 'CURRENT_TIMESTAMP',
   })
   public updatedAt: Date;
 
@@ -718,6 +747,9 @@ export class MediaRequest {
   @Column({ default: false })
   public isAutoRequest: boolean;
 
+  @Column({ default: false })
+  public ignoreQuota: boolean;
+
   constructor(init?: Partial<MediaRequest>) {
     Object.assign(this, init);
   }
@@ -776,11 +808,17 @@ export class MediaRequest {
       }
 
       if (
+        this.status === MediaRequestStatus.APPROVED &&
         media[this.isAlt ? 'statusAlt' : 'status'] === MediaStatus.AVAILABLE
       ) {
-        logger.warn(
-          'Media became available before request was approved. Skipping approval notification',
+        logger.info(
+          'Media is already available. Sending availability notification instead of approval.',
           { label: 'Media Request', requestId: this.id, mediaId: this.media.id }
+        );
+        MediaRequest.sendNotification(
+          this,
+          media,
+          Notification.MEDIA_AVAILABLE
         );
         return;
       }
@@ -843,6 +881,16 @@ export class MediaRequest {
       let notifySystem = true;
 
       switch (type) {
+        case Notification.MEDIA_AVAILABLE:
+          event = `${
+            entity.isAlt
+              ? entity.type === MediaType.BOOK
+                ? 'Audio'
+                : '4K '
+              : ''
+          }${mediaType} Now Available`;
+          notifyAdmin = false;
+          break;
         case Notification.MEDIA_APPROVED:
           event = `${
             entity.isAlt

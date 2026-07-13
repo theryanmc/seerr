@@ -19,8 +19,10 @@ authorRoutes.get('/:id', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      hardcoverAuthor.contributions.map((result) => result.book.id),
-      MediaType.BOOK
+      hardcoverAuthor.contributions.map((result) => ({
+        externalId: result.book.id,
+        mediaType: MediaType.BOOK,
+      }))
     );
 
     const books = hardcoverAuthor.contributions.map((result) =>

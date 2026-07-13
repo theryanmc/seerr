@@ -83,15 +83,16 @@ const RequestButton = ({
   // Current user's pending request, or the first pending request
   const activeRequest = useMemo(() => {
     return activeRequests && activeRequests.length > 0
-      ? activeRequests.find((request) => request.requestedBy.id === user?.id) ??
-          activeRequests[0]
+      ? (activeRequests.find(
+          (request) => request.requestedBy.id === user?.id
+        ) ?? activeRequests[0])
       : undefined;
   }, [activeRequests, user]);
   const activeAltRequest = useMemo(() => {
     return activeAltRequests && activeAltRequests.length > 0
-      ? activeAltRequests.find(
+      ? (activeAltRequests.find(
           (request) => request.requestedBy.id === user?.id
-        ) ?? activeAltRequests[0]
+        ) ?? activeAltRequests[0])
       : undefined;
   }, [activeAltRequests, user]);
 
@@ -315,7 +316,7 @@ const RequestButton = ({
       type: 'or',
     }) &&
     media &&
-    media.status !== MediaStatus.BLACKLISTED &&
+    media.status !== MediaStatus.BLOCKLISTED &&
     !isShowComplete
   ) {
     buttons.push({
@@ -369,7 +370,7 @@ const RequestButton = ({
       type: 'or',
     }) &&
     media &&
-    media.statusAlt !== MediaStatus.BLACKLISTED &&
+    media.statusAlt !== MediaStatus.BLOCKLISTED &&
     !is4kShowComplete &&
     settings.currentSettings.series4kEnabled
   ) {

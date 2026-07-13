@@ -1,6 +1,6 @@
 # seerr-chart
 
-![Version: 3.0.0](https://img.shields.io/badge/Version-3.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 2.7.3](https://img.shields.io/badge/AppVersion-2.7.3-informational?style=flat-square)
+![Version: 3.7.0](https://img.shields.io/badge/Version-3.7.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v3.3.0](https://img.shields.io/badge/AppVersion-v3.3.0-informational?style=flat-square)
 
 Seerr helm chart for Kubernetes
 
@@ -14,17 +14,21 @@ Seerr helm chart for Kubernetes
 
 ## Source Code
 
-* <https://github.com/seerr-team/seerr/tree/main/charts/seerr>
+* <https://github.com/seerr-team/seerr/tree/main/charts/seerr-chart>
 
 ## Requirements
 
 Kubernetes: `>=1.23.0-0`
 
+## Installation
+
+Refer to [Seerr kubernetes documentation](https://docs.seerr.dev/getting-started/kubernetes)
+
 ## Update Notes
 
 ### Updating to 3.0.0
 
-Nothing has changed; we just rebranded the `jellyseerr` Helm chart to `seerr` 🥳.
+Nothing has changed; we just rebranded the `jellyseerr` Helm chart to `seerr` 🥳 refer to our [Migration guide](https://docs.seerr.dev/migration-guide).
 
 ### Updating to 2.7.0
 
@@ -40,18 +44,21 @@ If `replicaCount` value was used - remove it. Helm update should work fine after
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` |  |
-| config | object | `{"persistence":{"accessModes":["ReadWriteOnce"],"annotations":{},"name":"","size":"5Gi","volumeName":""}}` | Creating PVC to store configuration |
+| config | object | `{"persistence":{"accessModes":["ReadWriteOnce"],"annotations":{},"existingClaim":"","name":"","size":"5Gi","storageClass":"","subPath":"","volumeName":""}}` | Creating PVC to store configuration |
 | config.persistence.accessModes | list | `["ReadWriteOnce"]` | Access modes of persistent disk |
 | config.persistence.annotations | object | `{}` | Annotations for PVCs |
+| config.persistence.existingClaim | string | `""` | Specify an existing `PersistentVolumeClaim` to use. If this value is provided, the default PVC will not be created |
 | config.persistence.name | string | `""` | Config name |
 | config.persistence.size | string | `"5Gi"` | Size of persistent disk |
+| config.persistence.storageClass | string | `""` | Storage class for the PVC. Set to "-" to disable dynamic provisioning. Uses default storage class if no value is provided |
+| config.persistence.subPath | string | `""` | Subpath of the pvc which should be mounted |
 | config.persistence.volumeName | string | `""` | Name of the permanent volume to reference in the claim. Can be used to bind to existing volumes. |
 | extraEnv | list | `[]` | Environment variables to add to the seerr pods |
 | extraEnvFrom | list | `[]` | Environment variables from secrets or configmaps to add to the seerr pods |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
 | image.registry | string | `"ghcr.io"` |  |
-| image.repository | string | `"fallenbagel/jellyseerr"` |  |
+| image.repository | string | `"seerr-team/seerr"` |  |
 | image.sha | string | `""` |  |
 | image.tag | string | `""` | Overrides the image tag whose default is the chart appVersion. |
 | imagePullSecrets | list | `[]` |  |
@@ -66,12 +73,33 @@ If `replicaCount` value was used - remove it. Helm update should work fine after
 | nodeSelector | object | `{}` |  |
 | podAnnotations | object | `{}` |  |
 | podLabels | object | `{}` |  |
-| podSecurityContext | object | `{}` |  |
-| probes.livenessProbe | object | `{}` | Configure liveness probe |
-| probes.readinessProbe | object | `{}` | Configure readiness probe |
+| podSecurityContext.fsGroup | int | `1000` |  |
+| podSecurityContext.fsGroupChangePolicy | string | `"OnRootMismatch"` |  |
+| probes.livenessProbe | object | `{"initialDelaySeconds":20,"periodSeconds":15,"timeoutSeconds":3}` | Configure liveness probe |
+| probes.readinessProbe | object | `{"initialDelaySeconds":60,"periodSeconds":15,"timeoutSeconds":3}` | Configure readiness probe |
 | probes.startupProbe | string | `nil` | Configure startup probe |
 | resources | object | `{}` |  |
-| securityContext | object | `{}` |  |
+| route.main.additionalRules | list | `[]` |  |
+| route.main.annotations | object | `{}` |  |
+| route.main.apiVersion | string | `"gateway.networking.k8s.io/v1"` | Set the route apiVersion, e.g. gateway.networking.k8s.io/v1 or gateway.networking.k8s.io/v1alpha2 |
+| route.main.enabled | bool | `false` | Enables or disables the Gateway API route |
+| route.main.filters | list | `[]` |  |
+| route.main.hostnames | list | `[]` |  |
+| route.main.httpsRedirect | bool | `false` | To redirect to HTTPS, create a new route object under the main route and enable this option. This should only be used with HTTP-like routes, such as HTTPRoute or GRPCRoute. [Reference]( https://gateway-api.sigs.k8s.io/guides/http-redirect-rewrite/ ) |
+| route.main.kind | string | `"HTTPRoute"` | Set the route kind. Note that experimental kinds require changing `apiVersion` |
+| route.main.labels | object | `{}` |  |
+| route.main.matches[0].path.type | string | `"PathPrefix"` |  |
+| route.main.matches[0].path.value | string | `"/"` |  |
+| route.main.parentRefs | list | `[]` |  |
+| securityContext.allowPrivilegeEscalation | bool | `false` |  |
+| securityContext.capabilities.drop[0] | string | `"ALL"` |  |
+| securityContext.privileged | bool | `false` |  |
+| securityContext.readOnlyRootFilesystem | bool | `false` |  |
+| securityContext.runAsGroup | int | `1000` |  |
+| securityContext.runAsNonRoot | bool | `true` |  |
+| securityContext.runAsUser | int | `1000` |  |
+| securityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
+| service.annotations | object | `{}` |  |
 | service.port | int | `80` |  |
 | service.type | string | `"ClusterIP"` |  |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the service account |

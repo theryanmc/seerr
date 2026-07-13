@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import CachedImage from '@app/components/Common/CachedImage';
 import { SmallLoadingSpinner } from '@app/components/Common/LoadingSpinner';
+import SlideCheckbox from '@app/components/Common/SlideCheckbox';
 import type { User } from '@app/hooks/useUser';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
@@ -15,7 +16,7 @@ import type {
 import type { UserResultsResponse } from '@server/interfaces/api/userInterfaces';
 import { hasPermission } from '@server/lib/permissions';
 import { isEqual } from 'lodash';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
 import Select from 'react-select';
 import useSWR from 'swr';
@@ -39,6 +40,9 @@ const messages = defineMessages('components.RequestModal.AdvancedRequester', {
   tags: 'Tags',
   selecttags: 'Select tags',
   notagoptions: 'No tags.',
+  ignoreQuotaTitle: 'Bypass User Quota',
+  ignoreQuotaDescription:
+    "This request will not count against the user's quota limits. Use with caution.",
 });
 
 export type RequestOverrides = {
@@ -49,6 +53,7 @@ export type RequestOverrides = {
   tags?: number[];
   language?: number;
   user?: User;
+  ignoreQuota?: boolean;
 };
 
 interface AdvancedRequesterProps {
@@ -57,6 +62,7 @@ interface AdvancedRequesterProps {
   isAnime?: boolean;
   defaultOverrides?: RequestOverrides;
   requestUser?: User;
+  quota?: { movie: { limit?: number }; tv: { limit?: number } };
   onChange: (overrides: RequestOverrides) => void;
 }
 
@@ -66,6 +72,7 @@ const AdvancedRequester = ({
   isAnime = false,
   defaultOverrides,
   requestUser,
+  quota,
   onChange,
 }: AdvancedRequesterProps) => {
   const intl = useIntl();
@@ -103,6 +110,13 @@ const AdvancedRequester = ({
     defaultOverrides?.tags ?? []
   );
 
+  const [ignoreQuota, setIgnoreQuota] = useState<boolean>(
+    defaultOverrides?.ignoreQuota ?? false
+  );
+  const isIgnoreQuotaVisible =
+    currentHasPermission([Permission.MANAGE_REQUESTS]) &&
+    ((type === 'movie' ? quota?.movie.limit : quota?.tv.limit) ?? 0) > 0;
+
   const { data: serverData, isValidating } =
     useSWR<ServiceCommonServerWithDetails>(
       selectedServer !== null
@@ -120,6 +134,8 @@ const AdvancedRequester = ({
   const [selectedUser, setSelectedUser] = useState<User | null>(
     requestUser ?? null
   );
+  const selectedUserId = selectedUser?.id;
+  const previousSelectedUserIdRef = useRef<number | undefined>(selectedUserId);
 
   const { data: userData } = useSWR<UserResultsResponse>(
     currentHasPermission([Permission.MANAGE_REQUESTS, Permission.MANAGE_USERS])
@@ -157,9 +173,14 @@ const AdvancedRequester = ({
 
   useEffect(() => {
     if (filteredUserData && !requestUser) {
-      setSelectedUser(
-        filteredUserData.find((u) => u.id === currentUser?.id) ?? null
-      );
+      const nextSelectedUser =
+        filteredUserData.find((u) => u.id === currentUser?.id) ?? null;
+
+      if (nextSelectedUser?.id !== selectedUserId) {
+        setIgnoreQuota(false);
+      }
+
+      setSelectedUser(nextSelectedUser);
     }
   }, [filteredUserData]);
 
@@ -283,6 +304,10 @@ const AdvancedRequester = ({
     if (defaultOverrides && defaultOverrides.tags != null) {
       setSelectedTags(defaultOverrides.tags);
     }
+
+    if (defaultOverrides && defaultOverrides.ignoreQuota != null) {
+      setIgnoreQuota(defaultOverrides.ignoreQuota);
+    }
   }, [
     defaultOverrides?.server,
     defaultOverrides?.folder,
@@ -290,7 +315,18 @@ const AdvancedRequester = ({
     defaultOverrides?.language,
     defaultOverrides?.metadataProfile,
     defaultOverrides?.tags,
+    defaultOverrides?.ignoreQuota,
   ]);
+
+  useEffect(() => {
+    const selectedUserChanged =
+      previousSelectedUserIdRef.current !== selectedUserId;
+    previousSelectedUserIdRef.current = selectedUserId;
+
+    if (!isIgnoreQuotaVisible || selectedUserChanged) {
+      setIgnoreQuota(false);
+    }
+  }, [isIgnoreQuotaVisible, selectedUserId]);
 
   useEffect(() => {
     if (selectedServer !== null || selectedUser) {
@@ -303,6 +339,7 @@ const AdvancedRequester = ({
         user: selectedUser ?? undefined,
         language: selectedLanguage !== -1 ? selectedLanguage : undefined,
         tags: selectedTags,
+        ignoreQuota: isIgnoreQuotaVisible && ignoreQuota ? true : undefined,
       });
     }
   }, [
@@ -313,6 +350,8 @@ const AdvancedRequester = ({
     selectedUser,
     selectedLanguage,
     selectedTags,
+    ignoreQuota,
+    isIgnoreQuotaVisible,
   ]);
 
   if (!data && !error) {
@@ -339,7 +378,7 @@ const AdvancedRequester = ({
   }
   return (
     <>
-      <div className="mt-4 mb-2 flex items-center text-lg font-semibold">
+      <div className="mb-2 mt-4 flex items-center text-lg font-semibold">
         {intl.formatMessage(messages.advancedoptions)}
       </div>
       <div className="rounded-md">
@@ -398,24 +437,31 @@ const AdvancedRequester = ({
                   )}
                   {!isValidating &&
                     serverData &&
-                    serverData.profiles.map((profile) => (
-                      <option
-                        key={`profile-list${profile.id}`}
-                        value={profile.id}
-                      >
-                        {isAnime &&
-                        serverData.server.activeAnimeProfileId === profile.id
-                          ? intl.formatMessage(messages.default, {
-                              name: profile.name,
-                            })
-                          : !isAnime &&
-                            serverData.server.activeProfileId === profile.id
-                          ? intl.formatMessage(messages.default, {
-                              name: profile.name,
-                            })
-                          : profile.name}
-                      </option>
-                    ))}
+                    serverData.profiles
+                      .toSorted((a, b) =>
+                        a.name.localeCompare(b.name, intl.locale, {
+                          numeric: true,
+                          sensitivity: 'base',
+                        })
+                      )
+                      .map((profile) => (
+                        <option
+                          key={`profile-list${profile.id}`}
+                          value={profile.id}
+                        >
+                          {isAnime &&
+                          serverData.server.activeAnimeProfileId === profile.id
+                            ? intl.formatMessage(messages.default, {
+                                name: profile.name,
+                              })
+                            : !isAnime &&
+                                serverData.server.activeProfileId === profile.id
+                              ? intl.formatMessage(messages.default, {
+                                  name: profile.name,
+                                })
+                              : profile.name}
+                        </option>
+                      ))}
                 </select>
               </div>
             )}
@@ -502,17 +548,17 @@ const AdvancedRequester = ({
                               }),
                             })
                           : !isAnime &&
-                            serverData.server.activeDirectory === folder.path
-                          ? intl.formatMessage(messages.default, {
-                              name: intl.formatMessage(messages.folder, {
+                              serverData.server.activeDirectory === folder.path
+                            ? intl.formatMessage(messages.default, {
+                                name: intl.formatMessage(messages.folder, {
+                                  path: folder.path,
+                                  space: formatBytes(folder.freeSpace ?? 0),
+                                }),
+                              })
+                            : intl.formatMessage(messages.folder, {
                                 path: folder.path,
                                 space: formatBytes(folder.freeSpace ?? 0),
-                              }),
-                            })
-                          : intl.formatMessage(messages.folder, {
-                              path: folder.path,
-                              space: formatBytes(folder.freeSpace ?? 0),
-                            })}
+                              })}
                       </option>
                     ))}
                 </select>
@@ -558,12 +604,12 @@ const AdvancedRequester = ({
                                 name: language.name,
                               })
                             : !isAnime &&
-                              serverData.server.activeLanguageProfileId ===
-                                language.id
-                            ? intl.formatMessage(messages.default, {
-                                name: language.name,
-                              })
-                            : language.name}
+                                serverData.server.activeLanguageProfileId ===
+                                  language.id
+                              ? intl.formatMessage(messages.default, {
+                                  name: language.name,
+                                })
+                              : language.name}
                         </option>
                       ))}
                   </select>
@@ -617,6 +663,22 @@ const AdvancedRequester = ({
               />
             </div>
           )}
+        {isIgnoreQuotaVisible && (
+          <div className="mb-2">
+            <label htmlFor="ignoreQuota">
+              {intl.formatMessage(messages.ignoreQuotaTitle)}
+            </label>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-400">
+                {intl.formatMessage(messages.ignoreQuotaDescription)}
+              </p>
+              <SlideCheckbox
+                checked={ignoreQuota}
+                onClick={() => setIgnoreQuota(!ignoreQuota)}
+              />
+            </div>
+          </div>
+        )}
         {currentHasPermission([
           Permission.MANAGE_REQUESTS,
           Permission.MANAGE_USERS,
@@ -626,7 +688,10 @@ const AdvancedRequester = ({
             <Listbox
               as="div"
               value={selectedUser}
-              onChange={(value) => setSelectedUser(value)}
+              onChange={(value) => {
+                setIgnoreQuota(false);
+                setSelectedUser(value);
+              }}
               className="space-y-1"
             >
               {({ open }) => (

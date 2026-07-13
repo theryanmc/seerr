@@ -5,6 +5,7 @@ import Modal from '@app/components/Common/Modal';
 import type { RequestOverrides } from '@app/components/RequestModal/AdvancedRequester';
 import AdvancedRequester from '@app/components/RequestModal/AdvancedRequester';
 import QuotaDisplay from '@app/components/RequestModal/QuotaDisplay';
+import useToasts from '@app/hooks/useToasts';
 import { useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -20,7 +21,6 @@ import type { Series } from '@server/models/Series';
 import axios from 'axios';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestModal', {
@@ -72,7 +72,7 @@ const SeriesRequestModal = ({
 
   const getAllParts = (): number[] => {
     return (data?.books ?? [])
-      .filter((book) => book.mediaInfo?.status !== MediaStatus.BLACKLISTED)
+      .filter((book) => book.mediaInfo?.status !== MediaStatus.BLOCKLISTED)
       .map((book) => book.id);
   };
 
@@ -263,8 +263,8 @@ const SeriesRequestModal = ({
     { type: 'or' }
   );
 
-  const blacklistVisibility = hasPermission(
-    [Permission.MANAGE_BLACKLIST, Permission.VIEW_BLACKLIST],
+  const blocklistVisibility = hasPermission(
+    [Permission.MANAGE_BLOCKLIST, Permission.VIEW_BLOCKLIST],
     { type: 'or' }
   );
 
@@ -364,9 +364,9 @@ const SeriesRequestModal = ({
                 <tbody className="divide-y divide-gray-700">
                   {data?.books
                     .filter((book) => {
-                      if (!blacklistVisibility)
+                      if (!blocklistVisibility)
                         return (
-                          book.mediaInfo?.status !== MediaStatus.BLACKLISTED
+                          book.mediaInfo?.status !== MediaStatus.BLOCKLISTED
                         );
                       return book;
                     })
@@ -385,7 +385,7 @@ const SeriesRequestModal = ({
                         <tr key={`book-${book.id}`}>
                           <td
                             className={`whitespace-nowrap px-4 py-4 text-sm font-medium leading-5 text-gray-100 ${
-                              partMedia?.status === MediaStatus.BLACKLISTED &&
+                              partMedia?.status === MediaStatus.BLOCKLISTED &&
                               'pointer-events-none opacity-50'
                             }`}
                           >
@@ -395,7 +395,7 @@ const SeriesRequestModal = ({
                               aria-checked={
                                 (!!partMedia &&
                                   partMedia.status !==
-                                    MediaStatus.BLACKLISTED) ||
+                                    MediaStatus.BLOCKLISTED) ||
                                 isSelectedPart(book.id)
                               }
                               onClick={() => togglePart(book.id)}
@@ -407,7 +407,7 @@ const SeriesRequestModal = ({
                               className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer items-center justify-center pt-2 focus:outline-none ${
                                 (!!partMedia &&
                                   partMedia.status !==
-                                    MediaStatus.BLACKLISTED) ||
+                                    MediaStatus.BLOCKLISTED) ||
                                 partRequest ||
                                 (quota?.book.limit &&
                                   currentlyRemaining <= 0 &&
@@ -421,7 +421,7 @@ const SeriesRequestModal = ({
                                 className={`${
                                   (!!partMedia &&
                                     partMedia.status !==
-                                      MediaStatus.BLACKLISTED) ||
+                                      MediaStatus.BLOCKLISTED) ||
                                   partRequest ||
                                   isSelectedPart(book.id)
                                     ? 'bg-indigo-500'
@@ -433,7 +433,7 @@ const SeriesRequestModal = ({
                                 className={`${
                                   (!!partMedia &&
                                     partMedia.status !==
-                                      MediaStatus.BLACKLISTED) ||
+                                      MediaStatus.BLOCKLISTED) ||
                                   partRequest ||
                                   isSelectedPart(book.id)
                                     ? 'translate-x-5'
@@ -444,7 +444,7 @@ const SeriesRequestModal = ({
                           </td>
                           <td
                             className={`flex items-center px-1 py-4 text-sm font-medium leading-5 text-gray-100 md:px-6 ${
-                              partMedia?.status === MediaStatus.BLACKLISTED &&
+                              partMedia?.status === MediaStatus.BLOCKLISTED &&
                               'pointer-events-none opacity-50'
                             }`}
                           >
@@ -454,7 +454,7 @@ const SeriesRequestModal = ({
                                 src={
                                   book.posterPath
                                     ? book.posterPath
-                                    : '/images/jellyseerr_poster_not_found.png'
+                                    : '/images/seerr_poster_not_found.png'
                                 }
                                 alt=""
                                 sizes="100vw"
@@ -507,9 +507,9 @@ const SeriesRequestModal = ({
                                 {intl.formatMessage(globalMessages.available)}
                               </Badge>
                             )}
-                            {partMedia?.status === MediaStatus.BLACKLISTED && (
+                            {partMedia?.status === MediaStatus.BLOCKLISTED && (
                               <Badge badgeType="danger">
-                                {intl.formatMessage(globalMessages.blacklisted)}
+                                {intl.formatMessage(globalMessages.blocklisted)}
                               </Badge>
                             )}
                           </td>

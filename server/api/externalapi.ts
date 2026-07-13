@@ -1,4 +1,4 @@
-import { requestInterceptorFunction } from '@server/utils/customProxyAgent';
+import { proxyRequestInterceptor } from '@server/utils/customProxyAgent';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import axios from 'axios';
 import rateLimit from 'axios-rate-limit';
@@ -13,6 +13,7 @@ const DEFAULT_ROLLING_BUFFER = 10000;
 export interface ExternalAPIOptions {
   nodeCache?: NodeCache;
   headers?: Record<string, unknown>;
+  timeout?: number;
   rateLimit?: {
     maxRPS: number;
     maxRequests: number;
@@ -32,13 +33,14 @@ class ExternalAPI {
     this.axios = axios.create({
       baseURL: baseUrl,
       params,
+      timeout: options.timeout,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
         ...options.headers,
       },
     });
-    this.axios.interceptors.request.use(requestInterceptorFunction);
+    this.axios.interceptors.request.use(proxyRequestInterceptor);
 
     if (options.rateLimit) {
       this.axios = rateLimit(this.axios, {

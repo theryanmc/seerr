@@ -35,19 +35,28 @@ export const createTmdbWithRegionLanguage = (user?: User): TheMovieDb => {
     user?.settings?.streamingRegion === 'all'
       ? ''
       : user?.settings?.streamingRegion
-      ? user?.settings?.streamingRegion
-      : settings.main.discoverRegion;
+        ? user?.settings?.streamingRegion
+        : settings.main.discoverRegion;
 
   const originalLanguage =
     user?.settings?.originalLanguage === 'all'
       ? ''
       : user?.settings?.originalLanguage
-      ? user?.settings?.originalLanguage
-      : settings.main.originalLanguage;
+        ? user?.settings?.originalLanguage
+        : settings.main.originalLanguage;
 
   return new TheMovieDb({
     discoverRegion,
     originalLanguage,
+  });
+};
+
+export const createTmdbWithBlocklistSettings = (): TheMovieDb => {
+  const settings = getSettings();
+
+  return new TheMovieDb({
+    discoverRegion: settings.main.blocklistRegion,
+    originalLanguage: settings.main.blocklistLanguage,
   });
 };
 
@@ -98,8 +107,10 @@ discoverRoutes.get('/books', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      data.data.books.map((result) => result.id),
-      MediaType.BOOK
+      data.data.books.map((result) => ({
+        externalId: result.id,
+        mediaType: MediaType.BOOK,
+      }))
     );
 
     return res.status(200).json({
@@ -167,7 +178,10 @@ discoverRoutes.get('/movies', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      data.results.map((result) => result.id)
+      data.results.map((result) => ({
+        externalId: result.id,
+        mediaType: MediaType.MOVIE,
+      }))
     );
 
     let keywordData: TmdbKeyword[] = [];
@@ -236,7 +250,10 @@ discoverRoutes.get<{ language: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.MOVIE,
+        }))
       );
 
       return res.status(200).json({
@@ -294,7 +311,10 @@ discoverRoutes.get<{ genreId: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.MOVIE,
+        }))
       );
 
       return res.status(200).json({
@@ -342,7 +362,10 @@ discoverRoutes.get<{ studioId: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.MOVIE,
+        }))
       );
 
       return res.status(200).json({
@@ -392,7 +415,10 @@ discoverRoutes.get('/movies/upcoming', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      data.results.map((result) => result.id)
+      data.results.map((result) => ({
+        externalId: result.id,
+        mediaType: MediaType.MOVIE,
+      }))
     );
 
     return res.status(200).json({
@@ -460,7 +486,10 @@ discoverRoutes.get('/tv', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      data.results.map((result) => result.id)
+      data.results.map((result) => ({
+        externalId: result.id,
+        mediaType: MediaType.TV,
+      }))
     );
 
     let keywordData: TmdbKeyword[] = [];
@@ -528,7 +557,10 @@ discoverRoutes.get<{ language: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.TV,
+        }))
       );
 
       return res.status(200).json({
@@ -586,7 +618,10 @@ discoverRoutes.get<{ genreId: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.TV,
+        }))
       );
 
       return res.status(200).json({
@@ -634,7 +669,10 @@ discoverRoutes.get<{ networkId: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.TV,
+        }))
       );
 
       return res.status(200).json({
@@ -684,7 +722,10 @@ discoverRoutes.get('/tv/upcoming', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      data.results.map((result) => result.id)
+      data.results.map((result) => ({
+        externalId: result.id,
+        mediaType: MediaType.TV,
+      }))
     );
 
     return res.status(200).json({
@@ -716,41 +757,64 @@ discoverRoutes.get('/trending', async (req, res, next) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
 
   try {
-    const data = await tmdb.getAllTrending({
-      page: Number(req.query.page),
-      language: (req.query.language as string) ?? req.locale,
-    });
+    const mediaType = (req.query.mediaType as 'all' | 'movie' | 'tv') ?? 'all';
+    const timeWindow =
+      (req.query.timeWindow as 'day' | 'week') === 'week' ? 'week' : 'day';
+    const language = (req.query.language as string) ?? req.locale;
+    const page = Number(req.query.page);
+
+    const trendingFetchers = {
+      movie: async () => ({
+        data: await tmdb.getMovieTrending({ page, language, timeWindow }),
+        mapper: mapMovieResult,
+        type: MediaType.MOVIE,
+      }),
+      tv: async () => ({
+        data: await tmdb.getTvTrending({ page, language, timeWindow }),
+        mapper: mapTvResult,
+        type: MediaType.TV,
+      }),
+      all: async () => ({
+        data: await tmdb.getAllTrending({ page, language, timeWindow }),
+        mapper: (result: any, media?: Media) => {
+          if (isMovie(result)) {
+            return mapMovieResult(result, media);
+          } else if (isPerson(result)) {
+            return mapPersonResult(result);
+          } else if (isCollection(result)) {
+            return mapCollectionResult(result);
+          } else {
+            return mapTvResult(result, media);
+          }
+        },
+        type: null,
+      }),
+    } as const;
+
+    const { data, mapper, type } = await trendingFetchers[mediaType]();
 
     const media = await Media.getRelatedMedia(
       req.user,
-      data.results.map((result) => result.id)
+      data.results.map((result) => ({
+        externalId: result.id,
+        mediaType: isMovie(result) ? MediaType.MOVIE : MediaType.TV,
+      }))
     );
 
     return res.status(200).json({
       page: data.page,
       totalPages: data.total_pages,
       totalResults: data.total_results,
-      results: data.results.map((result) =>
-        isMovie(result)
-          ? mapMovieResult(
-              result,
-              media.find(
-                (med) =>
-                  med.tmdbId === result.id && med.mediaType === MediaType.MOVIE
-              )
-            )
-          : isPerson(result)
-          ? mapPersonResult(result)
-          : isCollection(result)
-          ? mapCollectionResult(result)
-          : mapTvResult(
-              result,
-              media.find(
-                (med) =>
-                  med.tmdbId === result.id && med.mediaType === MediaType.TV
-              )
-            )
-      ),
+      results: data.results.map((result) => {
+        // - If "type" is set (case: "movie" or "tv"), the mediaType must also match.
+        // - If "type" is not set (case: "all"), only filter by tmdbId.
+        const selectedMedia = media.find(
+          (med) =>
+            med.tmdbId === result.id && (type ? med.mediaType === type : true)
+        );
+
+        return mapper(result, selectedMedia);
+      }),
     });
   } catch (e) {
     logger.debug('Something went wrong retrieving trending items', {
@@ -778,7 +842,10 @@ discoverRoutes.get<{ keywordId: string }>(
 
       const media = await Media.getRelatedMedia(
         req.user,
-        data.results.map((result) => result.id)
+        data.results.map((result) => ({
+          externalId: result.id,
+          mediaType: MediaType.MOVIE,
+        }))
       );
 
       return res.status(200).json({
@@ -902,7 +969,7 @@ discoverRoutes.get<Record<string, unknown>, WatchlistResponse>(
   async (req, res) => {
     const userRepository = getRepository(User);
     const itemsPerPage = 20;
-    const page = Number(req.query.page) ?? 1;
+    const page = req.query.page ? Number(req.query.page) : 1;
     const offset = (page - 1) * itemsPerPage;
 
     const activeUser = await userRepository.findOne({

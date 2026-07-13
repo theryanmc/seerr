@@ -15,8 +15,10 @@ seriesRoutes.get<{ id: string }>('/:id', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      series.book_series.map((book) => book.book.id),
-      MediaType.BOOK
+      series.book_series.map((book) => ({
+        externalId: book.book.id,
+        mediaType: MediaType.BOOK,
+      }))
     );
 
     return res.status(200).json(mapSeries(series, media));

@@ -4,6 +4,7 @@ import dataSource, { getRepository, isPgsql } from '@server/datasource';
 import DiscoverSlider from '@server/entity/DiscoverSlider';
 import { Session } from '@server/entity/Session';
 import { User } from '@server/entity/User';
+import { initI18n } from '@server/i18n';
 import { startJobs } from '@server/job/schedule';
 import notificationManager from '@server/lib/notifications';
 import DiscordAgent from '@server/lib/notifications/agents/discord';
@@ -16,6 +17,7 @@ import SlackAgent from '@server/lib/notifications/agents/slack';
 import TelegramAgent from '@server/lib/notifications/agents/telegram';
 import WebhookAgent from '@server/lib/notifications/agents/webhook';
 import WebPushAgent from '@server/lib/notifications/agents/webpush';
+import checkOverseerrMerge from '@server/lib/overseerrMerge';
 import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import clearCookies from '@server/middleware/clearcookies';
@@ -24,11 +26,12 @@ import avatarproxy from '@server/routes/avatarproxy';
 import imageproxy from '@server/routes/imageproxy';
 import { appDataPermissions } from '@server/utils/appDataVolume';
 import { getAppVersion } from '@server/utils/appVersion';
-import createCustomProxyAgent from '@server/utils/customProxyAgent';
+import createCustomProxyAgent, {
+  setForceIpv4First,
+} from '@server/utils/customProxyAgent';
 import { initializeDnsCache } from '@server/utils/dnsCache';
 import restartFlag from '@server/utils/restartFlag';
 import { getClientIp } from '@supercharge/request-ip';
-import axios from 'axios';
 import { TypeormStore } from 'connect-typeorm/out';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -36,12 +39,11 @@ import express from 'express';
 import * as OpenApiValidator from 'express-openapi-validator';
 import type { Store } from 'express-session';
 import session from 'express-session';
-import http from 'http';
-import https from 'https';
+import fs from 'fs/promises';
+import yaml from 'js-yaml';
 import next from 'next';
 import path from 'path';
 import swaggerUi from 'swagger-ui-express';
-import YAML from 'yamljs';
 
 const API_SPEC_PATH = path.join(__dirname, '../seerr-api.yml');
 
@@ -59,7 +61,12 @@ if (!appDataPermissions()) {
 app
   .prepare()
   .then(async () => {
-    const dbConnection = await dataSource.initialize();
+    // Run Overseerr to Seerr migration
+    await checkOverseerrMerge();
+
+    const dbConnection = dataSource.isInitialized
+      ? dataSource
+      : await dataSource.initialize();
 
     // Run migrations in production
     if (process.env.NODE_ENV === 'production') {
@@ -76,10 +83,9 @@ app
     const settings = await getSettings().load();
     restartFlag.initializeSettings(settings);
 
-    if (settings.network.forceIpv4First) {
-      axios.defaults.httpAgent = new http.Agent({ family: 4 });
-      axios.defaults.httpsAgent = new https.Agent({ family: 4 });
-    }
+    initI18n();
+
+    setForceIpv4First(settings.network.forceIpv4First);
 
     // Add DNS caching
     if (settings.network.dnsCache?.enabled) {
@@ -91,7 +97,10 @@ app
 
     // Register HTTP proxy
     if (settings.network.proxy.enabled) {
-      await createCustomProxyAgent(settings.network.proxy);
+      await createCustomProxyAgent(
+        settings.network.proxy,
+        settings.network.forceIpv4First
+      );
     }
 
     // Migrate library types
@@ -156,12 +165,15 @@ app
       try {
         const descriptor = Object.getOwnPropertyDescriptor(req, 'ip');
         if (descriptor?.writable === true) {
-          (req as any).ip = getClientIp(req) ?? '';
+          Object.defineProperty(req, 'ip', {
+            ...descriptor,
+            value: getClientIp(req) ?? '',
+          });
         }
       } catch (e) {
         logger.error('Failed to attach the ip to the request', {
           label: 'Middleware',
-          message: e.message,
+          message: (e as Error).message,
         });
       } finally {
         next();
@@ -174,6 +186,8 @@ app
             httpOnly: true,
             sameSite: true,
             secure: !dev,
+            key: '_csrf',
+            path: '/',
           },
         })
       );
@@ -191,7 +205,7 @@ app
     server.use(
       '/api',
       session({
-        secret: settings.clientId,
+        secret: settings.sessionSecret,
         resave: false,
         saveUninitialized: false,
         cookie: {
@@ -206,7 +220,8 @@ app
         }).connect(sessionRespository) as Store,
       })
     );
-    const apiDocs = YAML.load(API_SPEC_PATH);
+    const apiSpecContent = await fs.readFile(API_SPEC_PATH, 'utf-8');
+    const apiDocs = yaml.load(apiSpecContent) as Record<string, unknown>;
     server.use('/api-docs', swaggerUi.serve, swaggerUi.setup(apiDocs));
     server.use(
       OpenApiValidator.middleware({
@@ -232,7 +247,7 @@ app
     server.use('/imageproxy', clearCookies, imageproxy);
     server.use('/avatarproxy', clearCookies, avatarproxy);
 
-    server.get('*', (req, res) => handle(req, res));
+    server.get('*path', (req, res) => handle(req, res));
     server.use(
       (
         err: { status: number; message: string; errors: string[] },

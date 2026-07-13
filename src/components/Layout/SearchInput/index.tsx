@@ -10,10 +10,10 @@ import { useRouter } from 'next/router';
 import { useIntl } from 'react-intl';
 
 const messages = defineMessages('components.Layout.SearchInput', {
-  searchPlaceholder: 'Search Movies & TV',
+  searchPlaceholder: 'Search Movies & Series',
   searchPlaceholderBooks: 'Search Books',
   mediaTypeLabel: 'Media Type',
-  moviesAndTv: 'Movies & TV',
+  moviesAndTv: 'Movies & Series',
   books: 'Books',
 });
 
@@ -78,7 +78,7 @@ const SearchInput = () => {
           <input
             id="search_field"
             style={{ paddingRight: searchValue.length > 0 ? '1.75rem' : '' }}
-            className="col-start-1 row-start-1 block w-full rounded-r-full border border-gray-600 bg-gray-900 bg-opacity-80 py-2 pl-4 pr-3 text-white placeholder-gray-300 outline-none hover:border-gray-500 focus:border-gray-500 focus:bg-opacity-100 focus:placeholder-gray-400 focus:outline-none sm:text-base"
+            className="col-start-1 row-start-1 block w-full rounded-r-full border border-gray-600 bg-gray-900/80 py-2 pl-4 pr-3 text-white placeholder-gray-300 outline-none hover:border-gray-500 focus:border-gray-500 focus:bg-gray-900 focus:placeholder-gray-400 focus:outline-none sm:text-base"
             placeholder={
               searchType === 'hardcover'
                 ? intl.formatMessage(messages.searchPlaceholderBooks)

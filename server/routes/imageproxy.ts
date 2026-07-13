@@ -46,8 +46,17 @@ function initHardcoverImageProxy() {
   return _hardcoverImageProxy;
 }
 
-router.get('/:type/*', async (req, res) => {
-  const imagePath = req.path.replace(/^\/\w+/, '');
+router.get<{
+  type: string;
+  path: string[];
+}>('/:type/*path', async (req, res) => {
+  const imagePath = '/' + req.params.path.join('/');
+
+  if (imagePath.startsWith('//') || imagePath.includes('://')) {
+    logger.error('Invalid URL for image proxy', { imagePath });
+    return res.status(403).send('Invalid URL for image proxy');
+  }
+
   try {
     let imageData;
     if (req.params.type === 'tmdb') {

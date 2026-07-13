@@ -45,8 +45,11 @@ searchRoutes.get('/', async (req, res, next) => {
 
     const media = await Media.getRelatedMedia(
       req.user,
-      results.results.map((result) => result.id),
-      req.query.type === 'hardcover' ? MediaType.BOOK : undefined
+      results.results.map((result) => ({
+        externalId: result.id,
+        mediaType:
+          req.query.type === 'hardcover' ? MediaType.BOOK : result.media_type,
+      }))
     );
 
     return res.status(200).json({

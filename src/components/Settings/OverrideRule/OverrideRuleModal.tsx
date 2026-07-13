@@ -11,12 +11,12 @@ import type {
   SonarrTestResponse,
 } from '@app/components/Settings/SettingsServices';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
 import { Transition } from '@headlessui/react';
 import type OverrideRule from '@server/entity/OverrideRule';
 import type {
-  DVRSettings,
   RadarrSettings,
   ReadarrSettings,
   SonarrSettings,
@@ -26,7 +26,6 @@ import { Field, Formik } from 'formik';
 import { useCallback, useEffect, useState } from 'react';
 import { useIntl } from 'react-intl';
 import Select from 'react-select';
-import { useToasts } from 'react-toast-notifications';
 
 const messages = defineMessages('components.Settings.OverrideRuleModal', {
   createrule: 'New Override Rule',
@@ -122,7 +121,7 @@ const OverrideRuleModal = ({
 
         setIsValidated(true);
         setTestResponse(response.data);
-      } catch (e) {
+      } catch {
         setIsValidated(false);
       } finally {
         setIsTesting(false);
@@ -132,25 +131,25 @@ const OverrideRuleModal = ({
   );
 
   useEffect(() => {
-    let service: DVRSettings | null = null;
-    let serviceType: 'radarr' | 'sonarr' | 'readarr' = 'sonarr';
-    if (rule?.radarrServiceId !== null && rule?.radarrServiceId !== undefined) {
-      service = radarrServices[rule?.radarrServiceId] || null;
-      serviceType = 'radarr';
+    const radarrMatch = radarrServices.find(
+      (s) => s.id === rule?.radarrServiceId
+    );
+    if (radarrMatch) {
+      getServiceInfos({ ...radarrMatch, serviceType: 'radarr' });
     }
-    if (rule?.sonarrServiceId !== null && rule?.sonarrServiceId !== undefined) {
-      service = sonarrServices[rule?.sonarrServiceId] || null;
-      serviceType = 'sonarr';
+
+    const sonarrMatch = sonarrServices.find(
+      (s) => s.id === rule?.sonarrServiceId
+    );
+    if (sonarrMatch) {
+      getServiceInfos({ ...sonarrMatch, serviceType: 'sonarr' });
     }
-    if (
-      rule?.readarrServiceId !== null &&
-      rule?.readarrServiceId !== undefined
-    ) {
-      service = readarrServices[rule?.readarrServiceId] || null;
-      serviceType = 'readarr';
-    }
-    if (service) {
-      getServiceInfos({ ...service, serviceType });
+
+    const readarrMatch = readarrServices.find(
+      (s) => s.id === rule?.readarrServiceId
+    );
+    if (readarrMatch) {
+      getServiceInfos({ ...readarrMatch, serviceType: 'readarr' });
     }
   }, [
     getServiceInfos,
@@ -217,7 +216,7 @@ const OverrideRuleModal = ({
               });
             }
             onClose();
-          } catch (e) {
+          } catch {
             // set error here
           }
         }}
@@ -239,8 +238,8 @@ const OverrideRuleModal = ({
                 isSubmitting
                   ? intl.formatMessage(globalMessages.saving)
                   : rule
-                  ? intl.formatMessage(globalMessages.save)
-                  : intl.formatMessage(messages.create)
+                    ? intl.formatMessage(globalMessages.save)
+                    : intl.formatMessage(messages.create)
               }
               okDisabled={
                 isSubmitting ||
@@ -291,9 +290,12 @@ const OverrideRuleModal = ({
                             setFieldValue('radarrServiceId', id);
                             setFieldValue('sonarrServiceId', null);
                             setFieldValue('readarrServiceId', null);
-                            if (radarrServices[id]) {
+                            const match = radarrServices.find(
+                              (s) => s.id === id
+                            );
+                            if (match) {
                               getServiceInfos({
-                                ...radarrServices[id],
+                                ...match,
                                 serviceType: 'radarr',
                               });
                             }
@@ -301,9 +303,12 @@ const OverrideRuleModal = ({
                             setFieldValue('radarrServiceId', null);
                             setFieldValue('sonarrServiceId', id);
                             setFieldValue('readarrServiceId', null);
-                            if (sonarrServices[id]) {
+                            const match = sonarrServices.find(
+                              (s) => s.id === id
+                            );
+                            if (match) {
                               getServiceInfos({
-                                ...sonarrServices[id],
+                                ...match,
                                 serviceType: 'sonarr',
                               });
                             }
@@ -311,9 +316,12 @@ const OverrideRuleModal = ({
                             setFieldValue('radarrServiceId', null);
                             setFieldValue('sonarrServiceId', null);
                             setFieldValue('readarrServiceId', id);
-                            if (readarrServices[id]) {
+                            const match = readarrServices.find(
+                              (s) => s.id === id
+                            );
+                            if (match) {
                               getServiceInfos({
-                                ...readarrServices[id],
+                                ...match,
                                 serviceType: 'readarr',
                               });
                             }

@@ -1,3 +1,4 @@
+import Spinner from '@app/assets/spinner.svg';
 import Badge from '@app/components/Common/Badge';
 import Button from '@app/components/Common/Button';
 import CachedImage from '@app/components/Common/CachedImage';
@@ -6,6 +7,7 @@ import RequestModal from '@app/components/RequestModal';
 import StatusBadge from '@app/components/StatusBadge';
 import useDeepLinks from '@app/hooks/useDeepLinks';
 import useSettings from '@app/hooks/useSettings';
+import useToasts from '@app/hooks/useToasts';
 import { Permission, useUser } from '@app/hooks/useUser';
 import globalMessages from '@app/i18n/globalMessages';
 import defineMessages from '@app/utils/defineMessages';
@@ -29,12 +31,12 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useInView } from 'react-intersection-observer';
 import { FormattedRelativeTime, useIntl } from 'react-intl';
-import { useToasts } from 'react-toast-notifications';
 import useSWR, { mutate } from 'swr';
 
 const messages = defineMessages('components.RequestList.RequestItem', {
   seasons: '{seasonCount, plural, one {Season} other {Seasons}}',
   failedretry: 'Something went wrong while retrying the request.',
+  failedmodify: 'Something went wrong while modifying the request.',
   requested: 'Requested',
   requesteddate: 'Requested',
   modified: 'Modified',
@@ -126,7 +128,7 @@ const RequestItemError = ({
             </>
           )}
         </div>
-        <div className="mt-4 ml-4 flex w-full flex-col justify-center overflow-hidden pr-4 text-sm sm:ml-2 sm:mt-0 xl:flex-1 xl:pr-0">
+        <div className="ml-4 mt-4 flex w-full flex-col justify-center overflow-hidden pr-4 text-sm sm:ml-2 sm:mt-0 xl:flex-1 xl:pr-0">
           {requestData && (
             <>
               <div className="card-field">
@@ -338,13 +340,23 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
   });
 
   const [isRetrying, setRetrying] = useState(false);
+  const [updatingType, setUpdatingType] = useState<
+    'approve' | 'decline' | null
+  >(null);
 
   const modifyRequest = async (type: 'approve' | 'decline') => {
-    const response = await axios.post(`/api/v1/request/${request.id}/${type}`);
-
-    if (response) {
+    setUpdatingType(type);
+    try {
+      await axios.post(`/api/v1/request/${request.id}/${type}`);
       revalidate();
       mutate('/api/v1/request/count');
+    } catch {
+      addToast(intl.formatMessage(messages.failedmodify), {
+        autoDismiss: true,
+        appearance: 'error',
+      });
+    } finally {
+      setUpdatingType(null);
     }
   };
 
@@ -371,7 +383,7 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
     try {
       const result = await axios.post(`/api/v1/request/${request.id}/retry`);
       revalidate(result.data);
-    } catch (e) {
+    } catch {
       addToast(intl.formatMessage(messages.failedretry), {
         autoDismiss: true,
         appearance: 'error',
@@ -454,9 +466,11 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
               <CachedImage
                 type={requestData.type === 'book' ? 'hardcover' : 'tmdb'}
                 src={
-                  title.posterPath
-                    ? title.posterPath
-                    : '/images/jellyseerr_poster_not_found.png'
+                  requestData.type === 'book'
+                    ? title.posterPath ?? '/images/seerr_poster_not_found.png'
+                    : title.posterPath
+                    ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${title.posterPath}`
+                    : '/images/seerr_poster_not_found.png'
                 }
                 alt=""
                 sizes="100vw"
@@ -515,7 +529,7 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                 )}
             </div>
           </div>
-          <div className="z-10 mt-4 ml-4 flex w-full flex-col justify-center gap-1 overflow-hidden pr-4 text-sm sm:ml-2 sm:mt-0 xl:flex-1 xl:pr-0">
+          <div className="z-10 ml-4 mt-4 flex w-full flex-col justify-center gap-1 overflow-hidden pr-4 text-sm sm:ml-2 sm:mt-0 xl:flex-1 xl:pr-0">
             <div className="card-field">
               <span className="card-field-name">
                 {intl.formatMessage(globalMessages.status)}
@@ -765,8 +779,9 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                     className="w-full"
                     buttonType="success"
                     onClick={() => modifyRequest('approve')}
+                    disabled={updatingType !== null}
                   >
-                    <CheckIcon />
+                    {updatingType === 'approve' ? <Spinner /> : <CheckIcon />}
                     <span>{intl.formatMessage(globalMessages.approve)}</span>
                   </Button>
                 </span>
@@ -775,8 +790,9 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                     className="w-full"
                     buttonType="danger"
                     onClick={() => modifyRequest('decline')}
+                    disabled={updatingType !== null}
                   >
-                    <XMarkIcon />
+                    {updatingType === 'decline' ? <Spinner /> : <XMarkIcon />}
                     <span>{intl.formatMessage(globalMessages.decline)}</span>
                   </Button>
                 </span>
@@ -792,6 +808,7 @@ const RequestItem = ({ request, revalidateList }: RequestItemProps) => {
                   className="w-full"
                   buttonType="primary"
                   onClick={() => setShowEditModal(true)}
+                  disabled={updatingType !== null}
                 >
                   <PencilIcon />
                   <span>{intl.formatMessage(messages.editrequest)}</span>
